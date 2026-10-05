@@ -65,6 +65,7 @@ export class Game {
     this.input.init(canvas);
     this.refreshProgress();
     this.bindClickEvents();
+    this.bindVisibilityEvents();
   }
 
   public async start(): Promise<void> {
@@ -75,6 +76,23 @@ export class Game {
 
   private refreshProgress(): void {
     this.allProgress = PlayroomAdapter.getAllProgress(LEVELS.length);
+  }
+
+  private bindVisibilityEvents(): void {
+    document.addEventListener('visibilitychange', () => {
+      this.lastTime = performance.now();
+      if (document.hidden) {
+        this.sound.resetClockTick();
+      }
+    });
+
+    window.addEventListener('blur', () => {
+      this.lastTime = performance.now();
+    });
+
+    window.addEventListener('focus', () => {
+      this.lastTime = performance.now();
+    });
   }
 
   private bindClickEvents(): void {
@@ -98,22 +116,24 @@ export class Game {
         }
       } else if (this.state === 'LEVEL_SELECT') {
         // 返回按鈕
-        if (mx >= 40 && mx <= 180 && my >= GAME_CONFIG.CANVAS_HEIGHT - 48 && my <= GAME_CONFIG.CANVAS_HEIGHT - 10) {
+        if (mx >= 49 && mx <= 49 + 140 && my >= GAME_CONFIG.CANVAS_HEIGHT - 46 && my <= GAME_CONFIG.CANVAS_HEIGHT - 10) {
           this.state = 'TITLE';
           return;
         }
 
-        // 關卡卡片
-        const cardW = 260;
-        const cardH = 170;
-        const startX = (GAME_CONFIG.CANVAS_WIDTH - (3 * cardW + 2 * 30)) / 2;
-        const startY = 85;
+        // 關卡卡片 (3 列 x 3 行 = 9 關)
+        const cardW = 270;
+        const cardH = 118;
+        const gapX = 26;
+        const gapY = 16;
+        const startX = 49;
+        const startY = 68;
 
         LEVELS.forEach((level, idx) => {
           const col = idx % 3;
           const row = Math.floor(idx / 3);
-          const x = startX + col * (cardW + 30);
-          const y = startY + row * (cardH + 25);
+          const x = startX + col * (cardW + gapX);
+          const y = startY + row * (cardH + gapY);
           const progress = this.allProgress[level.id];
           if (progress && progress.unlocked && mx >= x && mx <= x + cardW && my >= y && my <= y + cardH) {
             this.startLevel(level.id);
@@ -229,9 +249,11 @@ export class Game {
   }
 
   private triggerGameOver(reason: string): void {
+    // 立即乾淨清空錄製器，防止死幀或 NaN 殘留
+    this.recorder.clear();
     this.state = 'GAMEOVER';
     this.gameoverReason = reason;
-    this.renderer.addTrauma(0.8);
+    this.renderer.addTrauma(0.85);
     this.sound.playVaporized();
     PlayroomAdapter.finishRun(0);
   }
@@ -246,9 +268,13 @@ export class Game {
     const penalty = this.glitchedGhostIds.size * GAME_CONFIG.PARADOX_PENALTY;
     const totalScore = Math.max(0, GAME_CONFIG.BASE_SCORE + remainingTimeBonus + loopSavedBonus - penalty);
 
-    // 星級評判
+    // 精細星級評判體系 (根據耗費迴圈數、通關剩餘秒數與悖論懲罰)
+    const level = this.stageManager.currentLevel;
+    const targetLoops = level?.threeStarLoops ?? (level && level.maxLoops <= 2 ? 1 : 2);
+    const targetTime = level?.threeStarMinTime ?? 3.0;
+
     let stars = 1;
-    if (this.currentLoop <= 2 && this.glitchedGhostIds.size === 0) {
+    if (this.currentLoop <= targetLoops && this.remainingSeconds >= targetTime && this.glitchedGhostIds.size === 0) {
       stars = 3;
     } else if (this.currentLoop < this.maxLoops) {
       stars = 2;
@@ -361,7 +387,17 @@ export class Game {
 
     this.stageManager.update(dt, this.agentPos, ghostPositions, this.particles);
 
-    // 4. 殘影雷射碰撞檢測 (若殘影觸碰雷射，標記時空干擾消散)
+    // 4. 殘影移動伴隨量子光點粒子與全像干擾波紋
+    for (const g of activeGhosts) {
+      if (g.isAlive && (g.actions & 0b0001)) {
+        this.particles.emitQuantumTrail(g.x, g.y, g.color);
+        if (Math.random() < 0.08) {
+          this.particles.emitHoloRipple(g.x, g.y, g.color);
+        }
+      }
+    }
+
+    // 5. 殘影雷射碰撞檢測 (若殘影觸碰雷射，標記時空干擾消散)
     for (const g of activeGhosts) {
       if (g.isAlive && this.stageManager.checkLaserCollision(g.x, g.y, GAME_CONFIG.PLAYER_HITBOX_RADIUS)) {
         this.glitchedGhostIds.add(g.id);
@@ -370,14 +406,14 @@ export class Game {
       }
     }
 
-    // 5. 特工本體雷射致命判定 (氣化失敗)
+    // 6. 特工本體雷射致命判定 (氣化失敗)
     if (this.stageManager.checkLaserCollision(this.agentPos.x, this.agentPos.y, GAME_CONFIG.PLAYER_HITBOX_RADIUS)) {
       this.particles.emitGlitchExplosion(this.agentPos.x, this.agentPos.y, GAME_CONFIG.AGENT_COLOR);
       this.triggerGameOver('特工觸碰高能雷射防禦網，肉身瞬間氣化！');
       return;
     }
 
-    // 6. 核心拾取檢測
+    // 7. 核心拾取檢測
     if (!this.stageManager.isCoreExtracted) {
       const distToCore = Math.hypot(
         this.agentPos.x - this.stageManager.corePosition.x,
@@ -390,7 +426,7 @@ export class Game {
       }
     }
 
-    // 7. 撤離點通關檢測 (必須攜帶核心)
+    // 8. 撤離點通關檢測 (必須攜帶核心)
     if (this.stageManager.isCoreExtracted) {
       const distToExit = Math.hypot(
         this.agentPos.x - this.stageManager.exitPosition.x,
@@ -402,16 +438,16 @@ export class Game {
       }
     }
 
-    // 8. 記錄特工 Tick (60Hz 定頻採樣)
+    // 9. 記錄特工 Tick (60Hz 定頻採樣)
     let actions = 0;
     if (isMoving) actions |= 0b0001;
     if (this.isDashing) actions |= 0b0010;
     this.recorder.recordTick(this.agentPos.x, this.agentPos.y, this.agentAngle, actions);
   }
 
-  // 主遊戲循環
+  // 主遊戲循環 (加強防切標籤頁與休眠時差震盪)
   private gameLoop(time: number): void {
-    const dt = Math.min(0.05, (time - this.lastTime) / 1000);
+    const dt = Math.min(0.05, Math.max(0.001, (time - this.lastTime) / 1000));
     this.lastTime = time;
 
     this.update(dt);

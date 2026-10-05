@@ -120,17 +120,20 @@ export class InputManager {
         for (const btn of this.touchButtons) {
           const dx = tx - btn.x;
           const dy = ty - btn.y;
-          if (dx * dx + dy * dy <= (btn.radius + 15) * (btn.radius + 15)) {
+          if (dx * dx + dy * dy <= (btn.radius + 18) * (btn.radius + 18)) {
             btn.isDown = true;
             hitButton = true;
+            if (typeof navigator !== 'undefined' && 'vibrate' in navigator && navigator.vibrate) {
+              navigator.vibrate(25);
+            }
             if (btn.id === 'dash') this.dashBuffer = true;
             if (btn.id === 'rewind') this.rewindBuffer = true;
             break;
           }
         }
 
-        // 若不是點擊按鈕，且在螢幕左半邊 (x < 480)，觸發虛擬搖桿
-        if (!hitButton && tx < 480 && this.joystickTouchId === null) {
+        // 若不是點擊按鈕，且在螢幕左半邊 (x < 500)，觸發虛擬搖桿
+        if (!hitButton && tx < 500 && this.joystickTouchId === null) {
           this.joystickTouchId = touch.identifier;
           this.joystickActive = true;
           this.joystickOrigin = { x: tx, y: ty };
@@ -153,19 +156,31 @@ export class InputManager {
           const ty = (touch.clientY - rect.top) / this.scaleY;
           this.joystickCurrent = { x: tx, y: ty };
 
-          const maxDist = 50;
+          const maxDist = 52;
+          const deadzone = 5;
           let dx = tx - this.joystickOrigin.x;
           let dy = ty - this.joystickOrigin.y;
           const dist = Math.hypot(dx, dy);
 
+          // 浮動搖桿跟隨機制：若滑動超出範圍，平滑拉近原點以維持精準手感
           if (dist > maxDist) {
+            const pull = dist - maxDist;
+            this.joystickOrigin.x += (dx / dist) * pull * 0.45;
+            this.joystickOrigin.y += (dy / dist) * pull * 0.45;
             dx = (dx / dist) * maxDist;
             dy = (dy / dist) * maxDist;
           }
-          this.joystickVector = {
-            x: dx / maxDist,
-            y: dy / maxDist,
-          };
+
+          if (dist < deadzone) {
+            this.joystickVector = { x: 0, y: 0 };
+          } else {
+            // 平滑死區映射與靈敏度加成
+            const normalizedDist = Math.min(1.0, ((dist - deadzone) / (maxDist - deadzone)) * 1.12);
+            this.joystickVector = {
+              x: (dx / dist) * normalizedDist,
+              y: (dy / dist) * normalizedDist,
+            };
+          }
         } else {
           const tx = (touch.clientX - rect.left) / this.scaleX;
           const ty = (touch.clientY - rect.top) / this.scaleY;

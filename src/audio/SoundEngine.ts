@@ -126,6 +126,7 @@ export class SoundEngine {
 
   // 2. 踏板開關機械喀噠聲
   public playPedalClick(isPressed: boolean): void {
+    if (isPressed) this.triggerHaptic(18);
     if (!this.ctx || !this.sfxGain || this.isMuted) return;
     const now = this.ctx.currentTime;
 
@@ -157,6 +158,7 @@ export class SoundEngine {
 
   // 3. 量子倒流音效 (Rewind Swoosh)
   public playRewindSwoosh(): void {
+    this.triggerHaptic([45, 30, 45]);
     if (!this.ctx || !this.sfxGain || this.isMuted) return;
     const now = this.ctx.currentTime;
     const duration = 0.55;
@@ -207,6 +209,7 @@ export class SoundEngine {
 
   // 4. 時空特工衝刺 (Blink Dash)
   public playDash(): void {
+    this.triggerHaptic(30);
     if (!this.ctx || !this.sfxGain || this.isMuted) return;
     const now = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
@@ -248,8 +251,18 @@ export class SoundEngine {
     });
   }
 
+  // 觸覺回饋封裝 (Vibration API)
+  public triggerHaptic(pattern: number | number[] = 20): void {
+    try {
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator && navigator.vibrate) {
+        navigator.vibrate(pattern);
+      }
+    } catch (_) {}
+  }
+
   // 6. 特工被雷射氣化或殘影悖論消散
   public playVaporized(): void {
+    this.triggerHaptic([80, 50, 120]);
     if (!this.ctx || !this.sfxGain || this.isMuted) return;
     const now = this.ctx.currentTime;
 
@@ -270,6 +283,7 @@ export class SoundEngine {
 
   // 7. 通關勝利 (Victory Jingle)
   public playVictory(): void {
+    this.triggerHaptic([40, 60, 40, 60, 100]);
     if (!this.ctx || !this.sfxGain || this.isMuted) return;
     const now = this.ctx.currentTime;
     const chords = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
@@ -287,6 +301,79 @@ export class SoundEngine {
       osc.start(st);
       osc.stop(st + 0.5);
     });
+  }
+
+  // 8. 量子空間傳送躍遷音效 (Teleport Warp)
+  public playTeleport(): void {
+    this.triggerHaptic([35, 40, 35]);
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(180, now);
+    osc.frequency.exponentialRampToValueAtTime(1600, now + 0.18);
+
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(600, now);
+    filter.frequency.exponentialRampToValueAtTime(3200, now + 0.18);
+    filter.Q.setValueAtTime(4.0, now);
+
+    gain.gain.setValueAtTime(0.35, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGain);
+
+    osc.start(now);
+    osc.stop(now + 0.22);
+  }
+
+  // 9. EMP 電磁充能音效
+  public playEmpCharge(): void {
+    this.triggerHaptic(25);
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(220, now);
+    osc.frequency.exponentialRampToValueAtTime(880, now + 0.15);
+
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.15);
+  }
+
+  // 10. 全場 EMP 爆發音效 (EMP Burst)
+  public playEmpBurst(): void {
+    this.triggerHaptic([60, 40, 100]);
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+
+    // 低頻震波
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(120, now);
+    osc.frequency.exponentialRampToValueAtTime(30, now + 0.45);
+
+    gain.gain.setValueAtTime(0.45, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.45);
   }
 
   // 8. 賽博龐克 Synthwave BGM (16 步進合成器)

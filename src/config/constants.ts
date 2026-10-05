@@ -31,12 +31,12 @@ export const GAME_CONFIG = {
   LOOP_SAVED_BONUS: 3000,
   PARADOX_PENALTY: 1500,
 
-  // 殘影顏色定義
+  // 殘影霓虹光譜定義 (第 1 影 青藍 Cyan、第 2 影 霓虹紫 Magenta、第 3 影 琥珀金 Amber、第 4 影 賽博綠 Emerald)
   GHOST_COLORS: [
-    { name: 'Echo-1', color: '#00f0ff', stroke: 'rgba(0, 240, 255, 0.7)' },
-    { name: 'Echo-2', color: '#c040ff', stroke: 'rgba(192, 64, 255, 0.7)' },
-    { name: 'Echo-3', color: '#ffaa00', stroke: 'rgba(255, 170, 0, 0.7)' },
-    { name: 'Echo-4', color: '#00ff88', stroke: 'rgba(0, 255, 136, 0.7)' },
+    { name: 'Echo-1 [Cyan]', color: '#00f0ff', stroke: 'rgba(0, 240, 255, 0.85)', glow: 'rgba(0, 240, 255, 0.45)' },
+    { name: 'Echo-2 [Magenta]', color: '#ff00cc', stroke: 'rgba(255, 0, 204, 0.85)', glow: 'rgba(255, 0, 204, 0.45)' },
+    { name: 'Echo-3 [Amber]', color: '#ffaa00', stroke: 'rgba(255, 170, 0, 0.85)', glow: 'rgba(255, 170, 0, 0.45)' },
+    { name: 'Echo-4 [Emerald]', color: '#00ff88', stroke: 'rgba(0, 255, 136, 0.85)', glow: 'rgba(0, 255, 136, 0.45)' },
   ],
 
   AGENT_COLOR: '#ffe600',

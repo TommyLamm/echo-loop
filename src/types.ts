@@ -53,6 +53,40 @@ export interface LaserHazard {
   onDuration?: number;
   offDuration?: number;
   timer?: number;
+  // 巡邏移動雷射
+  patrol?: {
+    axis: 'x' | 'y';
+    range: number;
+    speed: number;
+    initialX1?: number;
+    initialX2?: number;
+    initialY1?: number;
+    initialY2?: number;
+  };
+}
+
+export interface Teleporter {
+  id: string;
+  x: number;
+  y: number;
+  targetX: number;
+  targetY: number;
+  radius: number;
+  requiresPadId?: string; // 必須踩住指定踏板時激活
+  isActive: boolean;
+  color: string;
+  cooldownTimer?: number;
+}
+
+export interface EmpTerminal {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+  color: string;
+  isCharged: boolean;
+  chargeTimer: number; // 保持充能秒數
+  maxChargeTime: number; // 預設 3.0s
 }
 
 export interface LevelConfig {
@@ -69,6 +103,10 @@ export interface LevelConfig {
   pads: PressurePad[];
   doors: SecurityDoor[];
   lasers: LaserHazard[];
+  teleporters?: Teleporter[];
+  empTerminals?: EmpTerminal[];
+  threeStarLoops?: number;
+  threeStarMinTime?: number;
 }
 
 export type GameState =

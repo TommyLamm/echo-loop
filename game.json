@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "echo-loop",
   "name": "殘影特工：時間迴圈",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "12 秒極限時間迴圈潛入！操控特工並精確錄製軌跡，與上一輪半透明的自己跨時空協同開門、避開雷射、奪取量子核心！",
   "author": "TommyLam",
   "entry": "index.html",

@@ -13,6 +13,7 @@ export class GhostRecorder {
   public recordTick(x: number, y: number, angle: number, actions: number): void {
     if (!this.isRecording) return;
     if (this.currentFrames.length >= this.maxFrames) return;
+    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(angle)) return;
 
     this.currentFrames.push({
       x: Math.round(x * 100) / 100,
@@ -24,12 +25,20 @@ export class GhostRecorder {
 
   public stopAndExport(id: string, name: string, color: string): GhostTimeline {
     this.isRecording = false;
+    // 防禦空幀
+    const validFrames = this.currentFrames.filter(
+      (f) => Number.isFinite(f.x) && Number.isFinite(f.y) && Number.isFinite(f.angle)
+    );
+    if (validFrames.length === 0) {
+      validFrames.push({ x: 0, y: 0, angle: 0, actions: 0 });
+    }
+
     return {
       id,
       name,
       color,
-      frames: [...this.currentFrames],
-      totalFrames: this.currentFrames.length,
+      frames: validFrames,
+      totalFrames: validFrames.length,
     };
   }
 

@@ -141,6 +141,81 @@ export class ParticleSystem {
     }
   }
 
+  // 殘影移動時的量子光點粒子
+  public emitQuantumTrail(x: number, y: number, color: string): void {
+    if (Math.random() < 0.6) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * 8;
+      this.particles.push({
+        x: x + Math.cos(angle) * dist,
+        y: y + Math.sin(angle) * dist,
+        vx: (Math.random() - 0.5) * 20,
+        vy: (Math.random() - 0.5) * 20,
+        life: 0.35,
+        maxLife: 0.35,
+        size: Math.random() * 2.8 + 1.2,
+        color,
+        shape: Math.random() < 0.5 ? 'square' : 'circle',
+        alpha: 0.85,
+      });
+    }
+  }
+
+  // 全像干擾微波紋
+  public emitHoloRipple(x: number, y: number, color: string): void {
+    this.ripples.push({
+      x,
+      y,
+      radius: 4,
+      maxRadius: 24,
+      color,
+      alpha: 0.6,
+    });
+  }
+
+  // 量子傳送閃光
+  public emitTeleportFlash(x: number, y: number, color: string): void {
+    this.emitRipple(x, y, color, 55);
+    for (let i = 0; i < 20; i++) {
+      const angle = (i / 20) * Math.PI * 2;
+      const speed = Math.random() * 120 + 80;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0.4,
+        maxLife: 0.4,
+        size: Math.random() * 3.5 + 2,
+        color,
+        shape: 'square',
+        alpha: 1.0,
+      });
+    }
+  }
+
+  // 全場 EMP 衝擊波
+  public emitEmpShockwave(x: number, y: number): void {
+    this.emitRipple(x, y, '#00f0ff', 120);
+    this.emitRipple(x, y, '#ffffff', 80);
+    for (let i = 0; i < 30; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 180 + 40;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0.5,
+        maxLife: 0.5,
+        size: Math.random() * 4 + 2,
+        color: i % 2 === 0 ? '#00f0ff' : '#c040ff',
+        shape: 'square',
+        alpha: 1.0,
+      });
+    }
+  }
+
   public render(ctx: CanvasRenderingContext2D): void {
     ctx.save();
     // 渲染波紋
