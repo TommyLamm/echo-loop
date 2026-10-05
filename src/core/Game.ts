@@ -1,5 +1,5 @@
 import { GAME_CONFIG } from '../config/constants';
-import { GameState, GhostTimeline, LevelConfig, StageSaveData } from '../types';
+import { GameState, GhostTimeline, LevelConfig, StageSaveData, VictoryData } from '../types';
 import { LEVELS } from '../config/levels';
 import { SoundEngine } from '../audio/SoundEngine';
 import { PlayroomAdapter } from '../platform/PlayroomAdapter';
@@ -16,6 +16,10 @@ export class Game {
 
   private state: GameState = 'TITLE';
   private selectedLevelId: number = 1;
+
+  // Speedrun Mode
+  private isSpeedrunMode: boolean = false;
+  private speedrunTotalTimeMs: number = 0;
 
   // 關卡與機關
   private stageManager = new StageManager();
@@ -44,11 +48,12 @@ export class Game {
   private rewindProgress = 0;
 
   // 結算數據
-  private victoryData?: { score: number; stars: number; timeBonus: number; loopBonus: number; penalty: number };
+  private victoryData?: VictoryData;
   private gameoverReason = '';
 
   // 存檔快取
   private allProgress: Record<number, StageSaveData> = {};
+
 
   // 系統組件
   private input = InputManager.get();
@@ -106,63 +111,108 @@ export class Game {
       const my = (e.clientY - rect.top) / scaleY;
 
       if (this.state === 'TITLE') {
-        const btnW = 240;
-        const btnH = 50;
-        const btnX = GAME_CONFIG.CANVAS_WIDTH / 2 - btnW / 2;
-        const btnY = GAME_CONFIG.CANVAS_HEIGHT / 2 + 85;
-        if (mx >= btnX && mx <= btnX + btnW && my >= btnY && my <= btnY + btnH) {
+        const cx = GAME_CONFIG.CANVAS_WIDTH / 2;
+        const cy = GAME_CONFIG.CANVAS_HEIGHT / 2;
+
+        // 1. 戰役任務按鈕
+        const btn1W = 260;
+        const btn1H = 44;
+        const btn1X = cx - btn1W / 2;
+        const btn1Y = cy + 58;
+        if (mx >= btn1X && mx <= btn1X + btn1W && my >= btn1Y && my <= btn1Y + btn1H) {
           this.state = 'LEVEL_SELECT';
           this.refreshProgress();
+          return;
+        }
+
+        // 2. 極速狂飆模式按鈕
+        const btn2W = 260;
+        const btn2H = 44;
+        const btn2X = cx - btn2W / 2;
+        const btn2Y = cy + 114;
+        if (mx >= btn2X && mx <= btn2X + btn2W && my >= btn2Y && my <= btn2Y + btn2H) {
+          this.isSpeedrunMode = true;
+          this.speedrunTotalTimeMs = 0;
+          this.startLevel(1);
+          return;
         }
       } else if (this.state === 'LEVEL_SELECT') {
         // 返回按鈕
-        if (mx >= 49 && mx <= 49 + 140 && my >= GAME_CONFIG.CANVAS_HEIGHT - 46 && my <= GAME_CONFIG.CANVAS_HEIGHT - 10) {
+        if (mx >= 48 && mx <= 48 + 140 && my >= GAME_CONFIG.CANVAS_HEIGHT - 44 && my <= GAME_CONFIG.CANVAS_HEIGHT - 10) {
           this.state = 'TITLE';
           return;
         }
 
-        // 關卡卡片 (3 列 x 3 行 = 9 關)
-        const cardW = 270;
+        // 關卡卡片 (4 列 x 3 行 = 12 關)
+        const cardW = 200;
         const cardH = 118;
-        const gapX = 26;
-        const gapY = 16;
-        const startX = 49;
-        const startY = 68;
+        const gapX = 20;
+        const gapY = 14;
+        const startX = 48;
+        const startY = 62;
 
         LEVELS.forEach((level, idx) => {
-          const col = idx % 3;
-          const row = Math.floor(idx / 3);
+          const col = idx % 4;
+          const row = Math.floor(idx / 4);
           const x = startX + col * (cardW + gapX);
           const y = startY + row * (cardH + gapY);
           const progress = this.allProgress[level.id];
           if (progress && progress.unlocked && mx >= x && mx <= x + cardW && my >= y && my <= y + cardH) {
+            this.isSpeedrunMode = false;
             this.startLevel(level.id);
           }
         });
       } else if (this.state === 'VICTORY') {
-        const mw = 480;
-        const mh = 360;
-        const mx0 = (GAME_CONFIG.CANVAS_WIDTH - mw) / 2;
-        const my0 = (GAME_CONFIG.CANVAS_HEIGHT - mh) / 2;
-        const btnW = 160;
-        const btnH = 42;
-        const btnY = my0 + mh - 55;
+        if (this.victoryData?.isSpeedrunFinal) {
+          const mw = 520;
+          const mh = 380;
+          const mx0 = (GAME_CONFIG.CANVAS_WIDTH - mw) / 2;
+          const my0 = (GAME_CONFIG.CANVAS_HEIGHT - mh) / 2;
+          const btnW = 180;
+          const btnH = 42;
+          const btnY = my0 + mh - 60;
 
-        // Retry
-        const rX = mx0 + 50;
-        if (mx >= rX && mx <= rX + btnW && my >= btnY && my <= btnY + btnH) {
-          this.startLevel(this.selectedLevelId);
-          return;
-        }
+          // Menu
+          const rX = mx0 + 60;
+          if (mx >= rX && mx <= rX + btnW && my >= btnY && my <= btnY + btnH) {
+            this.state = 'TITLE';
+            this.isSpeedrunMode = false;
+            return;
+          }
 
-        // Next
-        const nX = mx0 + mw - 50 - btnW;
-        if (mx >= nX && mx <= nX + btnW && my >= btnY && my <= btnY + btnH) {
-          if (this.selectedLevelId < LEVELS.length) {
-            this.startLevel(this.selectedLevelId + 1);
-          } else {
-            this.state = 'LEVEL_SELECT';
-            this.refreshProgress();
+          // Again
+          const nX = mx0 + mw - 60 - btnW;
+          if (mx >= nX && mx <= nX + btnW && my >= btnY && my <= btnY + btnH) {
+            this.isSpeedrunMode = true;
+            this.speedrunTotalTimeMs = 0;
+            this.startLevel(1);
+            return;
+          }
+        } else {
+          const mw = 480;
+          const mh = 360;
+          const mx0 = (GAME_CONFIG.CANVAS_WIDTH - mw) / 2;
+          const my0 = (GAME_CONFIG.CANVAS_HEIGHT - mh) / 2;
+          const btnW = 160;
+          const btnH = 42;
+          const btnY = my0 + mh - 55;
+
+          // Retry
+          const rX = mx0 + 50;
+          if (mx >= rX && mx <= rX + btnW && my >= btnY && my <= btnY + btnH) {
+            this.startLevel(this.selectedLevelId);
+            return;
+          }
+
+          // Next
+          const nX = mx0 + mw - 50 - btnW;
+          if (mx >= nX && mx <= nX + btnW && my >= btnY && my <= btnY + btnH) {
+            if (this.selectedLevelId < LEVELS.length) {
+              this.startLevel(this.selectedLevelId + 1);
+            } else {
+              this.state = 'LEVEL_SELECT';
+              this.refreshProgress();
+            }
           }
         }
       } else if (this.state === 'GAMEOVER') {
@@ -176,6 +226,7 @@ export class Game {
       }
     });
   }
+
 
   private async startLevel(levelId: number): Promise<void> {
     const level = LEVELS.find((l) => l.id === levelId);
@@ -259,16 +310,11 @@ export class Game {
   }
 
   private triggerVictory(): void {
-    this.state = 'VICTORY';
-    this.sound.playVictory();
-
-    // 計算分數與星級
     const remainingTimeBonus = Math.floor(Math.max(0, this.remainingSeconds) * GAME_CONFIG.TIME_BONUS_PER_SEC);
     const loopSavedBonus = (this.maxLoops - this.currentLoop) * GAME_CONFIG.LOOP_SAVED_BONUS;
     const penalty = this.glitchedGhostIds.size * GAME_CONFIG.PARADOX_PENALTY;
     const totalScore = Math.max(0, GAME_CONFIG.BASE_SCORE + remainingTimeBonus + loopSavedBonus - penalty);
 
-    // 精細星級評判體系 (根據耗費迴圈數、通關剩餘秒數與悖論懲罰)
     const level = this.stageManager.currentLevel;
     const targetLoops = level?.threeStarLoops ?? (level && level.maxLoops <= 2 ? 1 : 2);
     const targetTime = level?.threeStarMinTime ?? 3.0;
@@ -280,6 +326,41 @@ export class Game {
       stars = 2;
     }
 
+    PlayroomAdapter.saveStageProgress(this.selectedLevelId, totalScore, stars);
+    this.refreshProgress();
+
+    // Speedrun 模式判斷
+    if (this.isSpeedrunMode) {
+      if (this.selectedLevelId < LEVELS.length) {
+        // 連續挑戰下一關
+        this.sound.playVictory();
+        this.startLevel(this.selectedLevelId + 1);
+        return;
+      } else {
+        // 終極 12 關全部通關
+        const speedrunScore = Math.max(50000, Math.floor(50000000 / (this.speedrunTotalTimeMs / 1000 + 35)));
+        PlayroomAdapter.finishRun(speedrunScore);
+
+        this.victoryData = {
+          score: speedrunScore,
+          stars: 3,
+          timeBonus: remainingTimeBonus,
+          loopBonus: loopSavedBonus,
+          penalty: 0,
+          isSpeedrunMode: true,
+          isSpeedrunFinal: true,
+          speedrunTotalTimeMs: this.speedrunTotalTimeMs,
+        };
+        this.state = 'VICTORY';
+        this.sound.playVictory();
+        return;
+      }
+    }
+
+    // 常規任務模式過關
+    this.state = 'VICTORY';
+    this.sound.playVictory();
+
     this.victoryData = {
       score: totalScore,
       stars,
@@ -288,10 +369,9 @@ export class Game {
       penalty,
     };
 
-    PlayroomAdapter.saveStageProgress(this.selectedLevelId, totalScore, stars);
     PlayroomAdapter.finishRun(totalScore);
-    this.refreshProgress();
   }
+
 
   // 主更新邏輯
   private update(dt: number): void {
@@ -299,6 +379,10 @@ export class Game {
     this.particles.update(dt);
 
     if (this.state !== 'PLAYING') return;
+
+    if (this.isSpeedrunMode) {
+      this.speedrunTotalTimeMs += dt * 1000;
+    }
 
     if (this.isRewinding) {
       this.rewindTimer -= dt;
@@ -387,10 +471,11 @@ export class Game {
 
     this.stageManager.update(dt, this.agentPos, ghostPositions, this.particles);
 
-    // 4. 殘影移動伴隨量子光點粒子與全像干擾波紋
+    // 4. 殘影移動伴隨量子光點粒子、量子星塵與全像干擾波紋
     for (const g of activeGhosts) {
       if (g.isAlive && (g.actions & 0b0001)) {
         this.particles.emitQuantumTrail(g.x, g.y, g.color);
+        this.particles.emitQuantumStardust(g.x, g.y, g.color);
         if (Math.random() < 0.08) {
           this.particles.emitHoloRipple(g.x, g.y, g.color);
         }
@@ -477,8 +562,11 @@ export class Game {
       victoryData: this.victoryData,
       gameoverReason: this.gameoverReason,
       isMuted: this.sound.getMuted(),
+      isSpeedrunMode: this.isSpeedrunMode,
+      speedrunTotalTimeMs: this.speedrunTotalTimeMs,
     });
 
     requestAnimationFrame(this.gameLoop.bind(this));
   }
+
 }

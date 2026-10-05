@@ -29,6 +29,7 @@ export interface PressurePad {
   isPressed: boolean;
   holdTimer: number;
   color: string;
+  isGravityInverter?: boolean; // 踩下時反轉全場重力與極性
 }
 
 export interface SecurityDoor {
@@ -40,6 +41,7 @@ export interface SecurityDoor {
   isOpen: boolean;
   openProgress: number; // 0 (closed) ~ 1 (fully open)
   orientation: 'horizontal' | 'vertical';
+  inverted?: boolean; // 反極性門：常態開啟或依反轉狀態連動
 }
 
 export interface LaserHazard {
@@ -53,6 +55,7 @@ export interface LaserHazard {
   onDuration?: number;
   offDuration?: number;
   timer?: number;
+  inverted?: boolean; // 當極性反轉時狀態顛倒
   // 巡邏移動雷射
   patrol?: {
     axis: 'x' | 'y';
@@ -63,6 +66,20 @@ export interface LaserHazard {
     initialY1?: number;
     initialY2?: number;
   };
+}
+
+export interface LaserPrism {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+  sourceLaserId?: string; // 來源雷射
+  targetDoorId?: string; // 被偏折雷射熔斷開闢之防爆大門
+  requiresPadId?: string; // 需殘影踩下的稜鏡調校踏板
+  isAligned: boolean; // 是否成功對準偏折
+  beamEndpoint?: { x: number; y: number }; // 偏折射線終點
+  meltProgress?: number; // 熔斷防爆門進度 (0 ~ 1)
+  color?: string;
 }
 
 export interface Teleporter {
@@ -105,6 +122,8 @@ export interface LevelConfig {
   lasers: LaserHazard[];
   teleporters?: Teleporter[];
   empTerminals?: EmpTerminal[];
+  prisms?: LaserPrism[];
+  hasGravityInverter?: boolean;
   threeStarLoops?: number;
   threeStarMinTime?: number;
 }
@@ -124,3 +143,17 @@ export interface StageSaveData {
   stars: number;
   clearedAt?: string;
 }
+
+export interface VictoryData {
+  score: number;
+  stars: number;
+  timeBonus: number;
+  loopBonus: number;
+  penalty: number;
+  isSpeedrunMode?: boolean;
+  isSpeedrunFinal?: boolean;
+  speedrunTotalTimeMs?: number;
+  stageSplitMs?: number;
+  isSpeedrunIntermission?: boolean;
+}
+

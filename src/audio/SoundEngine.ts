@@ -376,6 +376,82 @@ export class SoundEngine {
     osc.stop(now + 0.45);
   }
 
+  // 11. 重力極性反轉音效 (Gravity Inversion Warping)
+  public playGravityInvert(inverted: boolean): void {
+    this.triggerHaptic(35);
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const filter = this.ctx.createBiquadFilter();
+    const gain = this.ctx.createGain();
+
+    osc.type = 'sawtooth';
+    const startFreq = inverted ? 140 : 420;
+    const endFreq = inverted ? 520 : 120;
+    osc.frequency.setValueAtTime(startFreq, now);
+    osc.frequency.exponentialRampToValueAtTime(endFreq, now + 0.26);
+
+    filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(inverted ? 400 : 800, now);
+    filter.frequency.exponentialRampToValueAtTime(inverted ? 1200 : 300, now + 0.26);
+    filter.Q.setValueAtTime(3.0, now);
+
+    gain.gain.setValueAtTime(0.35, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.26);
+
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.sfxGain);
+
+    osc.start(now);
+    osc.stop(now + 0.26);
+  }
+
+  // 12. 稜鏡折射雷射與高能水晶共振 (Prism Refraction)
+  public playPrismRefract(): void {
+    this.triggerHaptic(25);
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+
+    const freqs = [1046.5, 1318.5, 1567.98]; // C6, E6, G6
+    freqs.forEach((f, idx) => {
+      const osc = this.ctx!.createOscillator();
+      const gain = this.ctx!.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(f, now + idx * 0.03);
+      gain.gain.setValueAtTime(0.18, now + idx * 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.03 + 0.18);
+
+      osc.connect(gain);
+      gain.connect(this.sfxGain!);
+      osc.start(now + idx * 0.03);
+      osc.stop(now + idx * 0.03 + 0.18);
+    });
+  }
+
+  // 13. 防爆門熔斷音效 (Blast Door Melted)
+  public playBlastDoorMelt(): void {
+    this.triggerHaptic([40, 20, 50]);
+    if (!this.ctx || !this.sfxGain || this.isMuted) return;
+    const now = this.ctx.currentTime;
+
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(300, now);
+    osc.frequency.exponentialRampToValueAtTime(70, now + 0.35);
+
+    gain.gain.setValueAtTime(0.4, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+
+    osc.connect(gain);
+    gain.connect(this.sfxGain);
+    osc.start(now);
+    osc.stop(now + 0.35);
+  }
+
+
   // 8. 賽博龐克 Synthwave BGM (16 步進合成器)
   public startBgm(): void {
     if (this.isBgmPlaying) return;

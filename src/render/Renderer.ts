@@ -3,7 +3,7 @@ import { ActiveGhostState } from '../core/GhostPlayer';
 import { StageManager } from '../core/StageManager';
 import { ParticleSystem } from '../core/ParticleSystem';
 import { InputManager } from '../core/InputManager';
-import { GameState, StageSaveData } from '../types';
+import { GameState, StageSaveData, VictoryData } from '../types';
 import { LEVELS } from '../config/levels';
 
 export class Renderer {
@@ -43,9 +43,11 @@ export class Renderer {
     rewindProgress: number; // 0 ~ 1
     selectedLevelId: number;
     allProgress: Record<number, StageSaveData>;
-    victoryData?: { score: number; stars: number; timeBonus: number; loopBonus: number; penalty: number };
+    victoryData?: VictoryData;
     gameoverReason?: string;
     isMuted: boolean;
+    isSpeedrunMode?: boolean;
+    speedrunTotalTimeMs?: number;
   }): void {
     const ctx = this.ctx;
     ctx.save();
@@ -69,7 +71,15 @@ export class Renderer {
     } else {
       // 遊戲中、倒流中、通關或失敗
       this.renderGameWorld(params);
-      this.renderHUD(params);
+      this.renderHUD({
+        remainingSeconds: params.remainingSeconds,
+        currentLoop: params.currentLoop,
+        maxLoops: params.maxLoops,
+        stageManager: params.stageManager,
+        isMuted: params.isMuted,
+        isSpeedrunMode: params.isSpeedrunMode,
+        speedrunTotalTimeMs: params.speedrunTotalTimeMs,
+      });
 
       // 觸控虛擬控制
       this.renderTouchControls(ctx, params.input);
@@ -103,7 +113,7 @@ export class Renderer {
     // 1. 高科技數位格網與動態流動光脈衝
     this.renderGrid(ctx);
 
-    // 2. 機關連線 (踏板至閘門、傳送門的發光管線)
+    // 2. 機關連線 (踏板至閘門、傳送門、稜鏡的發光管線)
     this.renderWires(ctx, sm);
 
     // 3. 量子傳送門 (Teleporters)
@@ -112,51 +122,60 @@ export class Renderer {
     // 4. EMP 電磁終端 (EMP Terminals)
     this.renderEmpTerminals(ctx, sm);
 
-    // 5. 踏板
+    // 5. 光學稜鏡 (Laser Prisms)
+    this.renderPrisms(ctx, sm);
+
+    // 6. 踏板 (支援重力反轉踏板)
     this.renderPads(ctx, sm);
 
-    // 6. 撤離裂縫 (Exit Rift)
+    // 7. 撤離裂縫 (Exit Rift)
     this.renderExitRift(ctx, sm.exitPosition.x, sm.exitPosition.y, sm.isCoreExtracted);
 
-    // 7. 量子數據核心 (Core)
+    // 8. 量子數據核心 (Core)
     if (!sm.isCoreExtracted) {
       this.renderQuantumCore(ctx, sm.corePosition.x, sm.corePosition.y);
     }
 
-    // 8. 殘影幽靈 (Echo Clones)
+    // 9. 殘影幽靈 (Echo Clones)
     for (const ghost of params.ghosts) {
       if (ghost.isAlive) {
         this.renderGhostAgent(ctx, ghost.x, ghost.y, ghost.angle, ghost.color, ghost.name);
       }
     }
 
-    // 9. 特工本體 (Agent)
+    // 10. 特工本體 (Agent)
     this.renderMainAgent(ctx, params.agentPos.x, params.agentPos.y, params.agentPos.angle, params.agentPos.isDashing, sm.isCoreExtracted);
 
-    // 10. 牆壁與閘門
+    // 11. 牆壁與閘門
     this.renderWalls(ctx, sm);
     this.renderDoors(ctx, sm);
 
-    // 11. 致命雷射 (帶充能預警動畫)
+    // 12. 致命雷射 (帶充能預警動畫與極性休眠狀態)
     this.renderLasers(ctx, sm);
 
-    // 12. 粒子特效
+    // 13. 粒子特效
     params.particles.render(ctx);
 
-    // 13. EMP 全場癱瘓視覺警示光效
+    // 14. EMP 全場癱瘓視覺警示光效
     if (sm.isEmpActive) {
       this.renderEmpActiveAura(ctx, sm.empRemainingTimer);
     }
+
+    // 15. 重力反轉全場力場警示光效
+    if (sm.isGravityInverted) {
+      this.renderGravityInversionAura(ctx);
+    }
   }
 
-  // 高科技數位格網與動態流動光脈衝
+  // 高科技數位格網與全息投影電路紋理、呼吸光脈衝
   private renderGrid(ctx: CanvasRenderingContext2D): void {
     const tileSize = 32;
     const now = Date.now() / 1000;
+    const breath = Math.sin(now * 2.2) * 0.25 + 0.75; // 呼吸光倍率 0.5 ~ 1.0
 
-    // 底層精細網格
     ctx.save();
-    ctx.strokeStyle = 'rgba(0, 180, 240, 0.055)';
+    // 底層精細網格
+    ctx.strokeStyle = `rgba(0, 180, 240, ${0.045 * breath})`;
     ctx.lineWidth = 1;
     for (let x = 0; x <= this.width; x += tileSize) {
       ctx.beginPath();
@@ -171,8 +190,41 @@ export class Renderer {
       ctx.stroke();
     }
 
+    // 全息投影電路紋理 (Circuit PCB Traces & Nodes)
+    ctx.strokeStyle = `rgba(0, 240, 255, ${0.08 * breath})`;
+    ctx.lineWidth = 1.2;
+
+    // 電路走線 1：上層 45 度走線
+    ctx.beginPath();
+    ctx.moveTo(80, 96);
+    ctx.lineTo(240, 96);
+    ctx.lineTo(272, 128);
+    ctx.lineTo(448, 128);
+    ctx.stroke();
+
+    // 電路走線 2：下層 45 度走線
+    ctx.beginPath();
+    ctx.moveTo(512, 416);
+    ctx.lineTo(672, 416);
+    ctx.lineTo(704, 384);
+    ctx.lineTo(880, 384);
+    ctx.stroke();
+
+    // 電路焊盤微光節點 (PCB Pads)
+    ctx.fillStyle = `rgba(0, 240, 255, ${0.22 * breath})`;
+    const pcbNodes = [
+      [80, 96], [240, 96], [272, 128], [448, 128],
+      [512, 416], [672, 416], [704, 384], [880, 384],
+      [480, 270], [160, 270], [800, 270]
+    ];
+    for (const [nx, ny] of pcbNodes) {
+      ctx.beginPath();
+      ctx.arc(nx, ny, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
     // 十字座標微光節點
-    ctx.fillStyle = 'rgba(0, 240, 255, 0.16)';
+    ctx.fillStyle = `rgba(0, 240, 255, ${0.16 * breath})`;
     for (let x = tileSize * 2; x < this.width; x += tileSize * 3) {
       for (let y = tileSize * 2; y < this.height; y += tileSize * 3) {
         ctx.fillRect(x - 1.5, y - 1.5, 3, 3);
@@ -181,43 +233,43 @@ export class Renderer {
 
     // 動態流動光脈衝 (Circuit Pulses)
     ctx.lineWidth = 2;
-    // 橫向光脈衝 1 (上方區域)
+    // 橫向光脈衝 1 (青藍高光)
     const pulse1X = ((now * 220) % (this.width + 300)) - 150;
     const pulse1Y = 160;
-    const grad1 = ctx.createLinearGradient(pulse1X - 80, pulse1Y, pulse1X + 80, pulse1Y);
+    const grad1 = ctx.createLinearGradient(pulse1X - 90, pulse1Y, pulse1X + 90, pulse1Y);
     grad1.addColorStop(0, 'rgba(0, 240, 255, 0)');
-    grad1.addColorStop(0.5, 'rgba(0, 240, 255, 0.45)');
+    grad1.addColorStop(0.5, `rgba(0, 240, 255, ${0.55 * breath})`);
     grad1.addColorStop(1, 'rgba(0, 240, 255, 0)');
     ctx.strokeStyle = grad1;
     ctx.beginPath();
-    ctx.moveTo(Math.max(0, pulse1X - 80), pulse1Y);
-    ctx.lineTo(Math.min(this.width, pulse1X + 80), pulse1Y);
+    ctx.moveTo(Math.max(0, pulse1X - 90), pulse1Y);
+    ctx.lineTo(Math.min(this.width, pulse1X + 90), pulse1Y);
     ctx.stroke();
 
-    // 橫向光脈衝 2 (下方區域)
+    // 橫向光脈衝 2 (霓虹紫高光)
     const pulse2X = this.width - (((now * 180) % (this.width + 300)) - 150);
     const pulse2Y = 384;
-    const grad2 = ctx.createLinearGradient(pulse2X - 70, pulse2Y, pulse2X + 70, pulse2Y);
+    const grad2 = ctx.createLinearGradient(pulse2X - 80, pulse2Y, pulse2X + 80, pulse2Y);
     grad2.addColorStop(0, 'rgba(255, 0, 204, 0)');
-    grad2.addColorStop(0.5, 'rgba(255, 0, 204, 0.4)');
+    grad2.addColorStop(0.5, `rgba(255, 0, 204, ${0.5 * breath})`);
     grad2.addColorStop(1, 'rgba(255, 0, 204, 0)');
     ctx.strokeStyle = grad2;
     ctx.beginPath();
-    ctx.moveTo(Math.max(0, pulse2X - 70), pulse2Y);
-    ctx.lineTo(Math.min(this.width, pulse2X + 70), pulse2Y);
+    ctx.moveTo(Math.max(0, pulse2X - 80), pulse2Y);
+    ctx.lineTo(Math.min(this.width, pulse2X + 80), pulse2Y);
     ctx.stroke();
 
-    // 縱向光脈衝 (中央走廊)
+    // 縱向光脈衝 (中央走廊翡翠綠)
     const pulse3Y = ((now * 200) % (this.height + 200)) - 100;
     const pulse3X = 480;
-    const grad3 = ctx.createLinearGradient(pulse3X, pulse3Y - 60, pulse3X, pulse3Y + 60);
+    const grad3 = ctx.createLinearGradient(pulse3X, pulse3Y - 70, pulse3X, pulse3Y + 70);
     grad3.addColorStop(0, 'rgba(0, 255, 136, 0)');
-    grad3.addColorStop(0.5, 'rgba(0, 255, 136, 0.35)');
+    grad3.addColorStop(0.5, `rgba(0, 255, 136, ${0.45 * breath})`);
     grad3.addColorStop(1, 'rgba(0, 255, 136, 0)');
     ctx.strokeStyle = grad3;
     ctx.beginPath();
-    ctx.moveTo(pulse3X, Math.max(0, pulse3Y - 60));
-    ctx.lineTo(pulse3X, Math.min(this.height, pulse3Y + 60));
+    ctx.moveTo(pulse3X, Math.max(0, pulse3Y - 70));
+    ctx.lineTo(pulse3X, Math.min(this.height, pulse3Y + 70));
     ctx.stroke();
 
     ctx.restore();
@@ -256,8 +308,134 @@ export class Renderer {
         }
       }
     }
+    // 踏板至稜鏡調校管線
+    for (const prism of sm.prisms) {
+      if (prism.requiresPadId) {
+        const pad = sm.pads.find((p) => p.id === prism.requiresPadId);
+        if (pad) {
+          ctx.beginPath();
+          ctx.moveTo(pad.x, pad.y);
+          ctx.lineTo(prism.x, prism.y);
+          ctx.strokeStyle = prism.isAligned ? 'rgba(0, 240, 255, 0.7)' : 'rgba(0, 180, 240, 0.15)';
+          ctx.lineWidth = prism.isAligned ? 2.5 : 1.2;
+          ctx.setLineDash([4, 4]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+    }
     ctx.restore();
   }
+
+  // 渲染光學稜鏡 (Laser Prisms)
+  private renderPrisms(ctx: CanvasRenderingContext2D, sm: StageManager): void {
+    if (!sm.prisms || sm.prisms.length === 0) return;
+    ctx.save();
+    const now = Date.now() / 400;
+
+    for (const p of sm.prisms) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+
+      const color = p.color || '#00f0ff';
+      ctx.shadowColor = p.isAligned ? color : '#334155';
+      ctx.shadowBlur = p.isAligned ? 24 : 6;
+
+      // 旋轉幾何水晶 (正三角形水晶)
+      ctx.rotate(now * 0.8);
+      ctx.beginPath();
+      for (let i = 0; i < 3; i++) {
+        const a = (i * Math.PI * 2) / 3 - Math.PI / 2;
+        const px = Math.cos(a) * p.radius;
+        const py = Math.sin(a) * p.radius;
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fillStyle = p.isAligned ? 'rgba(0, 240, 255, 0.42)' : 'rgba(30, 41, 59, 0.6)';
+      ctx.fill();
+      ctx.strokeStyle = p.isAligned ? '#ffffff' : '#64748b';
+      ctx.lineWidth = 2.4;
+      ctx.stroke();
+
+      // 內核六角高能晶核
+      ctx.rotate(-now * 1.6);
+      ctx.beginPath();
+      for (let i = 0; i < 6; i++) {
+        const a = (i * Math.PI) / 3;
+        const px = Math.cos(a) * (p.radius * 0.45);
+        const py = Math.sin(a) * (p.radius * 0.45);
+        if (i === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fillStyle = p.isAligned ? '#ffffff' : '#475569';
+      ctx.fill();
+
+      ctx.restore();
+
+      // 標籤
+      ctx.fillStyle = p.isAligned ? color : '#64748b';
+      ctx.font = 'bold 9px monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(p.isAligned ? 'PRISM [REFRACTING]' : 'PRISM [ALIGN REQ]', p.x, p.y + p.radius + 14);
+
+      // 繪製偏折雷射束 (從稜鏡到目標大門)
+      if (p.isAligned && p.beamEndpoint) {
+        ctx.save();
+        // 外暈
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.beamEndpoint.x, p.beamEndpoint.y);
+        ctx.strokeStyle = 'rgba(0, 240, 255, 0.35)';
+        ctx.lineWidth = 14;
+        ctx.stroke();
+
+        // 主高能束
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.beamEndpoint.x, p.beamEndpoint.y);
+        ctx.strokeStyle = '#00f0ff';
+        ctx.lineWidth = 5;
+        ctx.shadowColor = '#00f0ff';
+        ctx.shadowBlur = 18;
+        ctx.stroke();
+
+        // 核心純白聚焦線
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y);
+        ctx.lineTo(p.beamEndpoint.x, p.beamEndpoint.y);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2.0;
+        ctx.stroke();
+
+        ctx.restore();
+      }
+    }
+    ctx.restore();
+  }
+
+  // 重力反轉力場視覺光效
+  private renderGravityInversionAura(ctx: CanvasRenderingContext2D): void {
+    ctx.save();
+    const now = Date.now() / 200;
+    const pulseAlpha = 0.38 + Math.sin(now) * 0.16;
+
+    // 四周反轉能量脈衝邊框
+    ctx.strokeStyle = `rgba(192, 64, 255, ${pulseAlpha})`;
+    ctx.lineWidth = 6;
+    ctx.strokeRect(0, 0, this.width, this.height);
+
+    // 頂部全息警示
+    ctx.fillStyle = 'rgba(216, 120, 255, 0.95)';
+    ctx.font = 'bold 14px monospace';
+    ctx.textAlign = 'center';
+    ctx.shadowColor = '#c040ff';
+    ctx.shadowBlur = 14;
+    ctx.fillText('⟲ GRAVITY INVERSION ACTIVE // POLARITY REVERSED ⟲', this.width / 2, 54);
+    ctx.restore();
+  }
+
 
   // 渲染傳送門
   private renderTeleporters(ctx: CanvasRenderingContext2D, sm: StageManager): void {
@@ -401,31 +579,51 @@ export class Renderer {
 
   private renderPads(ctx: CanvasRenderingContext2D, sm: StageManager): void {
     ctx.save();
+    const now = Date.now() / 400;
+
     for (const pad of sm.pads) {
+      const isInv = pad.isGravityInverter;
+      const padColor = isInv ? '#c040ff' : pad.color;
+
       // 底座
       ctx.beginPath();
       ctx.arc(pad.x, pad.y, pad.radius, 0, Math.PI * 2);
-      ctx.fillStyle = pad.isPressed ? 'rgba(0, 240, 255, 0.35)' : 'rgba(20, 30, 45, 0.8)';
+      ctx.fillStyle = pad.isPressed
+        ? isInv ? 'rgba(192, 64, 255, 0.45)' : 'rgba(0, 240, 255, 0.35)'
+        : 'rgba(20, 30, 45, 0.8)';
       ctx.fill();
       ctx.lineWidth = 2.5;
-      ctx.strokeStyle = pad.color;
-      ctx.shadowColor = pad.color;
-      ctx.shadowBlur = pad.isPressed ? 16 : 6;
+      ctx.strokeStyle = padColor;
+      ctx.shadowColor = padColor;
+      ctx.shadowBlur = pad.isPressed ? 18 : 6;
       ctx.stroke();
 
       // 內部同心環
       ctx.beginPath();
       ctx.arc(pad.x, pad.y, pad.isPressed ? pad.radius * 0.55 : pad.radius * 0.65, 0, Math.PI * 2);
-      ctx.fillStyle = pad.color;
+      ctx.fillStyle = padColor;
       ctx.fill();
+
+      // 重力反轉專屬旋轉外環
+      if (isInv) {
+        ctx.save();
+        ctx.translate(pad.x, pad.y);
+        ctx.rotate(now);
+        ctx.beginPath();
+        ctx.arc(0, 0, pad.radius * 0.8, 0, Math.PI * 1.5);
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.restore();
+      }
 
       // 踏板圖示標籤
       ctx.shadowBlur = 0;
-      ctx.fillStyle = '#080c14';
-      ctx.font = 'bold 11px monospace';
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 10px monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(pad.id.replace('pad-', 'P'), pad.x, pad.y);
+      ctx.fillText(isInv ? 'G-INV' : pad.id.replace('pad-', 'P'), pad.x, pad.y);
     }
     ctx.restore();
   }
@@ -467,14 +665,18 @@ export class Renderer {
           drawW = d.w * (1 - d.openProgress);
         }
 
+        const isInvDoor = d.inverted;
+        const doorColor = isInvDoor ? '#c040ff' : '#ff3366';
+        const doorBg = isInvDoor ? 'rgba(192, 64, 255, 0.3)' : 'rgba(255, 50, 80, 0.25)';
+
         // 能量門底色
-        ctx.fillStyle = 'rgba(255, 50, 80, 0.25)';
+        ctx.fillStyle = doorBg;
         ctx.fillRect(drawX, drawY, drawW, drawH);
 
         // 能量門格柵
-        ctx.strokeStyle = '#ff3366';
+        ctx.strokeStyle = doorColor;
         ctx.lineWidth = 2;
-        ctx.shadowColor = '#ff3366';
+        ctx.shadowColor = doorColor;
         ctx.shadowBlur = 8;
         ctx.strokeRect(drawX, drawY, drawW, drawH);
 
@@ -505,6 +707,7 @@ export class Renderer {
     }
     ctx.restore();
   }
+
 
   private renderLasers(ctx: CanvasRenderingContext2D, sm: StageManager): void {
     ctx.save();
@@ -866,6 +1069,8 @@ export class Renderer {
     maxLoops: number;
     stageManager: StageManager;
     isMuted: boolean;
+    isSpeedrunMode?: boolean;
+    speedrunTotalTimeMs?: number;
   }): void {
     const ctx = this.ctx;
     ctx.save();
@@ -873,7 +1078,7 @@ export class Renderer {
     // 頂部狀態橫條
     ctx.fillStyle = 'rgba(10, 14, 23, 0.85)';
     ctx.fillRect(0, 0, this.width, 36);
-    ctx.strokeStyle = 'rgba(0, 240, 255, 0.3)';
+    ctx.strokeStyle = params.isSpeedrunMode ? 'rgba(255, 170, 0, 0.5)' : 'rgba(0, 240, 255, 0.3)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, 36);
@@ -913,7 +1118,6 @@ export class Renderer {
     const isUrgent = rem <= 3.2;
 
     const clockCx = this.width / 2;
-    const clockCy = 18;
 
     ctx.textAlign = 'center';
     ctx.font = 'bold 20px monospace';
@@ -922,6 +1126,23 @@ export class Renderer {
     ctx.shadowBlur = isUrgent ? 15 : 8;
     ctx.fillText(`${rem.toFixed(2)}s`, clockCx, 25);
     ctx.shadowBlur = 0;
+
+    // Speedrun 模式專屬指示與毫秒計時器
+    if (params.isSpeedrunMode) {
+      const totalSec = (params.speedrunTotalTimeMs || 0) / 1000;
+      const m = Math.floor(totalSec / 60);
+      const s = Math.floor(totalSec % 60);
+      const ms = Math.floor((totalSec % 1) * 1000);
+      const timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
+
+      ctx.textAlign = 'center';
+      ctx.font = 'bold 12px monospace';
+      ctx.fillStyle = '#ffaa00';
+      ctx.shadowColor = '#ffaa00';
+      ctx.shadowBlur = 8;
+      ctx.fillText(`⚡ RUN: ${timeStr} [${sm.currentLevel?.id ?? 1}/12]`, clockCx + 160, 24);
+      ctx.shadowBlur = 0;
+    }
 
     // 3. 核心狀態
     ctx.textAlign = 'right';
@@ -936,6 +1157,7 @@ export class Renderer {
 
     ctx.restore();
   }
+
 
   // --- 手機虛擬控制按鈕 ---
   private renderTouchControls(ctx: CanvasRenderingContext2D, input: InputManager): void {
@@ -1132,61 +1354,82 @@ export class Renderer {
 
     // 賽博裝飾光環
     ctx.beginPath();
-    ctx.arc(cx, cy - 40, 160, 0, Math.PI * 2);
+    ctx.arc(cx, cy - 46, 160, 0, Math.PI * 2);
     ctx.strokeStyle = 'rgba(0, 240, 255, 0.12)';
     ctx.lineWidth = 1;
     ctx.stroke();
 
     // 標題
     ctx.textAlign = 'center';
-    ctx.font = 'bold 54px monospace';
+    ctx.font = 'bold 52px monospace';
     ctx.fillStyle = '#ffffff';
     ctx.shadowColor = '#00f0ff';
     ctx.shadowBlur = 25;
-    ctx.fillText('ECHO LOOP', cx, cy - 70);
+    ctx.fillText('ECHO LOOP', cx, cy - 76);
 
     ctx.font = 'bold 22px monospace';
     ctx.fillStyle = '#00f0ff';
     ctx.shadowColor = '#00f0ff';
     ctx.shadowBlur = 12;
-    ctx.fillText('TIME PARADOX // 殘影特工：時間迴圈', cx, cy - 25);
+    ctx.fillText('TIME PARADOX // 殘影特工：時間迴圈', cx, cy - 32);
 
     // 說明簡介
     ctx.shadowBlur = 0;
-    ctx.font = '14px monospace';
+    ctx.font = '13px monospace';
     ctx.fillStyle = '#94a3b8';
-    ctx.fillText('12 秒極限時空潛入 × 殘影協同解謎', cx, cy + 18);
-    ctx.fillText('操作本體錄製軌跡，與上一輪的自己跨時空開門、引開雷射、奪取量子核心！', cx, cy + 42);
+    ctx.fillText('12 秒極限時空潛入 × 殘影協同解謎 × 12 大師級挑戰關卡', cx, cy + 8);
+    ctx.fillText('操作本體錄製軌跡，與上一輪的自己跨時空開門、折射雷射、重力反轉！', cx, cy + 28);
 
-    // 開始按鈕
-    const btnW = 240;
-    const btnH = 50;
-    const btnX = cx - btnW / 2;
-    const btnY = cy + 85;
+    // 1. 戰役任務按鈕
+    const btn1W = 260;
+    const btn1H = 44;
+    const btn1X = cx - btn1W / 2;
+    const btn1Y = cy + 58;
 
-    // 滑鼠 hover 判定
-    const isHover =
-      input.mouseX >= btnX && input.mouseX <= btnX + btnW && input.mouseY >= btnY && input.mouseY <= btnY + btnH;
+    const isHover1 =
+      input.mouseX >= btn1X && input.mouseX <= btn1X + btn1W && input.mouseY >= btn1Y && input.mouseY <= btn1Y + btn1H;
 
-    ctx.fillStyle = isHover ? '#00f0ff' : 'rgba(0, 240, 255, 0.2)';
-    ctx.fillRect(btnX, btnY, btnW, btnH);
+    ctx.fillStyle = isHover1 ? '#00f0ff' : 'rgba(0, 240, 255, 0.2)';
+    ctx.fillRect(btn1X, btn1Y, btn1W, btn1H);
     ctx.strokeStyle = '#00f0ff';
     ctx.lineWidth = 2;
-    ctx.strokeRect(btnX, btnY, btnW, btnH);
+    ctx.strokeRect(btn1X, btn1Y, btn1W, btn1H);
 
-    ctx.font = 'bold 20px monospace';
-    ctx.fillStyle = isHover ? '#080c14' : '#ffffff';
-    ctx.fillText('START MISSION / 開始行動', cx, btnY + 32);
+    ctx.font = 'bold 16px monospace';
+    ctx.fillStyle = isHover1 ? '#080c14' : '#ffffff';
+    ctx.fillText('MISSION SELECT / 關卡戰役', cx, btn1Y + 28);
+
+    // 2. 極速狂飆按鈕 (SPEEDRUN MODE)
+    const btn2W = 260;
+    const btn2H = 44;
+    const btn2X = cx - btn2W / 2;
+    const btn2Y = cy + 114;
+
+    const isHover2 =
+      input.mouseX >= btn2X && input.mouseX <= btn2X + btn2W && input.mouseY >= btn2Y && input.mouseY <= btn2Y + btn2H;
+
+    ctx.fillStyle = isHover2 ? '#ffaa00' : 'rgba(255, 170, 0, 0.2)';
+    ctx.fillRect(btn2X, btn2Y, btn2W, btn2H);
+    ctx.strokeStyle = '#ffaa00';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = '#ffaa00';
+    ctx.shadowBlur = isHover2 ? 14 : 6;
+    ctx.strokeRect(btn2X, btn2Y, btn2W, btn2H);
+    ctx.shadowBlur = 0;
+
+    ctx.font = 'bold 16px monospace';
+    ctx.fillStyle = isHover2 ? '#080c14' : '#ffe600';
+    ctx.fillText('⚡ SPEEDRUN MODE / 極速狂飆', cx, btn2Y + 28);
 
     // 操作指南提示
     ctx.font = '12px monospace';
     ctx.fillStyle = '#64748b';
-    ctx.fillText('WASD / 方向鍵移動 | Space 衝刺 | R 回溯重置 | 支援手機觸控搖桿', cx, this.height - 25);
+    ctx.fillText('WASD / 方向鍵移動 | Space 衝刺 | R 回溯重置 | 支援手機觸控搖桿', cx, this.height - 18);
 
     ctx.restore();
   }
 
-  // --- 關卡選擇畫面 (3x3 網格 9 大任務關卡) ---
+  // --- 關卡選擇畫面 (4x3 網格 12 大師級任務關卡) ---
   private renderLevelSelect(
     ctx: CanvasRenderingContext2D,
     allProgress: Record<number, StageSaveData>,
@@ -1206,30 +1449,30 @@ export class Renderer {
 
     // 頂部標題
     ctx.textAlign = 'left';
-    ctx.font = 'bold 24px monospace';
+    ctx.font = 'bold 22px monospace';
     ctx.fillStyle = '#ffffff';
     ctx.shadowColor = '#00f0ff';
     ctx.shadowBlur = 14;
-    ctx.fillText('SELECT MISSION // 選擇任務關卡', 49, 44);
+    ctx.fillText('SELECT MISSION // 選擇任務關卡 (12 MASTER STAGES)', 48, 42);
     ctx.shadowBlur = 0;
 
     // 總星級計數徽章
     ctx.textAlign = 'right';
-    ctx.font = 'bold 16px monospace';
+    ctx.font = 'bold 15px monospace';
     ctx.fillStyle = '#ffe600';
-    ctx.fillText(`★ TOTAL STARS: ${totalStars} / ${LEVELS.length * 3}`, this.width - 49, 44);
+    ctx.fillText(`★ TOTAL STARS: ${totalStars} / ${LEVELS.length * 3}`, this.width - 48, 42);
 
-    // 關卡網格 (3 列 x 3 行 = 9 關)
-    const cardW = 270;
+    // 關卡網格 (4 列 x 3 行 = 12 關)
+    const cardW = 200;
     const cardH = 118;
-    const gapX = 26;
-    const gapY = 16;
-    const startX = 49;
-    const startY = 68;
+    const gapX = 20;
+    const gapY = 14;
+    const startX = 48;
+    const startY = 62;
 
     LEVELS.forEach((level, idx) => {
-      const col = idx % 3;
-      const row = Math.floor(idx / 3);
+      const col = idx % 4;
+      const row = Math.floor(idx / 4);
       const x = startX + col * (cardW + gapX);
       const y = startY + row * (cardH + gapY);
 
@@ -1258,42 +1501,42 @@ export class Renderer {
       // 卡片文字
       ctx.textAlign = 'left';
       ctx.fillStyle = isUnlocked ? '#ffffff' : '#64748b';
-      ctx.font = 'bold 15px monospace';
-      ctx.fillText(`LV.${level.id} ${level.name}`, x + 14, y + 25);
+      ctx.font = 'bold 13px monospace';
+      ctx.fillText(`LV.${level.id} ${level.name}`, x + 10, y + 24);
 
       ctx.fillStyle = isUnlocked ? '#00f0ff' : '#475569';
-      ctx.font = '11px monospace';
-      ctx.fillText(`// ${level.subName}`, x + 14, y + 43);
+      ctx.font = '10px monospace';
+      ctx.fillText(`// ${level.subName}`, x + 10, y + 40);
 
       // 描述 / 迴圈配額
       ctx.fillStyle = isUnlocked ? '#94a3b8' : '#334155';
-      ctx.font = '11px monospace';
-      ctx.fillText(`迴圈上限: ${level.maxLoops} 次 | 倒數: ${level.loopDuration}s`, x + 14, y + 68);
+      ctx.font = '10px monospace';
+      ctx.fillText(`迴圈: ${level.maxLoops}次 | 限時: ${level.loopDuration}s`, x + 10, y + 66);
 
       if (isUnlocked) {
         // 星級
         ctx.fillStyle = '#ffe600';
-        ctx.font = '17px monospace';
+        ctx.font = '15px monospace';
         const starsText = '★'.repeat(progress.stars) + '☆'.repeat(Math.max(0, 3 - progress.stars));
-        ctx.fillText(starsText, x + 14, y + 98);
+        ctx.fillText(starsText, x + 10, y + 96);
 
         // 最高分
         ctx.textAlign = 'right';
         ctx.fillStyle = '#cbd5e1';
-        ctx.font = '11px monospace';
-        ctx.fillText(`BEST: ${progress.highScore.toLocaleString()} PTS`, x + cardW - 14, y + 97);
+        ctx.font = '10px monospace';
+        ctx.fillText(`${progress.highScore.toLocaleString()} PTS`, x + cardW - 10, y + 95);
       } else {
         ctx.fillStyle = '#ff3366';
-        ctx.font = 'bold 13px monospace';
-        ctx.fillText('🔒 LOCKED // 未解鎖', x + 14, y + 96);
+        ctx.font = 'bold 11px monospace';
+        ctx.fillText('🔒 LOCKED', x + 10, y + 94);
       }
     });
 
     // 底部返回按鈕
     const backBtnW = 140;
-    const backBtnH = 36;
-    const backX = 49;
-    const backY = this.height - 46;
+    const backBtnH = 34;
+    const backX = 48;
+    const backY = this.height - 44;
     const isBackHover =
       input.mouseX >= backX && input.mouseX <= backX + backBtnW && input.mouseY >= backY && input.mouseY <= backY + backBtnH;
 
@@ -1305,7 +1548,7 @@ export class Renderer {
     ctx.textAlign = 'center';
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 13px monospace';
-    ctx.fillText('< BACK / 返回', backX + backBtnW / 2, backY + 23);
+    ctx.fillText('< BACK / 返回', backX + backBtnW / 2, backY + 22);
 
     ctx.restore();
   }
@@ -1313,87 +1556,140 @@ export class Renderer {
   // --- 通關結算面板 ---
   private renderVictoryModal(
     ctx: CanvasRenderingContext2D,
-    data: { score: number; stars: number; timeBonus: number; loopBonus: number; penalty: number },
+    data: VictoryData,
     currentLevelId: number
   ): void {
     ctx.save();
 
     // 暗色半透明遮罩
-    ctx.fillStyle = 'rgba(5, 8, 14, 0.75)';
+    ctx.fillStyle = 'rgba(5, 8, 14, 0.78)';
     ctx.fillRect(0, 0, this.width, this.height);
 
     // 面板框
-    const mw = 480;
-    const mh = 360;
+    const mw = 520;
+    const mh = data.isSpeedrunFinal ? 380 : 360;
     const mx = (this.width - mw) / 2;
     const my = (this.height - mh) / 2;
 
     ctx.fillStyle = '#0f172a';
     ctx.fillRect(mx, my, mw, mh);
-    ctx.strokeStyle = '#00ff88';
+    ctx.strokeStyle = data.isSpeedrunFinal ? '#ffaa00' : '#00ff88';
     ctx.lineWidth = 2.5;
-    ctx.shadowColor = '#00ff88';
-    ctx.shadowBlur = 20;
+    ctx.shadowColor = data.isSpeedrunFinal ? '#ffaa00' : '#00ff88';
+    ctx.shadowBlur = 22;
     ctx.strokeRect(mx, my, mw, mh);
     ctx.shadowBlur = 0;
 
     // 標題
     ctx.textAlign = 'center';
-    ctx.fillStyle = '#00ff88';
-    ctx.font = 'bold 28px monospace';
-    ctx.fillText('MISSION COMPLETE!', this.width / 2, my + 45);
+    if (data.isSpeedrunFinal) {
+      ctx.fillStyle = '#ffaa00';
+      ctx.font = 'bold 28px monospace';
+      ctx.fillText('🏆 SPEEDRUN COMPLETED! 🏆', this.width / 2, my + 44);
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '14px monospace';
-    ctx.fillText('時空數據核心成功回收 // EXTRACTION SUCCESS', this.width / 2, my + 72);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '14px monospace';
+      ctx.fillText('12 關時空奇異點極速狂飆通關 // EXTRACTION SUCCESS', this.width / 2, my + 70);
 
-    // 星級
-    ctx.font = 'bold 36px monospace';
-    ctx.fillStyle = '#ffe600';
-    ctx.fillText('★'.repeat(data.stars) + '☆'.repeat(3 - data.stars), this.width / 2, my + 120);
+      // 總耗時醒目大字
+      const totalSec = (data.speedrunTotalTimeMs || 0) / 1000;
+      const m = Math.floor(totalSec / 60);
+      const s = Math.floor(totalSec % 60);
+      const ms = Math.floor((totalSec % 1) * 1000);
+      const timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}.${ms.toString().padStart(3, '0')}`;
 
-    // 得分細項
-    ctx.textAlign = 'left';
-    ctx.font = '14px monospace';
-    ctx.fillStyle = '#94a3b8';
-    const sx = mx + 60;
-    ctx.fillText(`基礎過關獎勵:       +10,000`, sx, my + 160);
-    ctx.fillText(`剩餘時間加成:       +${data.timeBonus}`, sx, my + 185);
-    ctx.fillText(`殘影節約加成:       +${data.loopBonus}`, sx, my + 210);
-    if (data.penalty > 0) {
-      ctx.fillStyle = '#ff3366';
-      ctx.fillText(`時空悖論懲罰:       -${data.penalty}`, sx, my + 235);
+      ctx.font = 'bold 36px monospace';
+      ctx.fillStyle = '#ffe600';
+      ctx.fillText(`⏱ ${timeStr}`, this.width / 2, my + 124);
+
+      ctx.textAlign = 'left';
+      ctx.font = '14px monospace';
+      ctx.fillStyle = '#94a3b8';
+      const sx = mx + 70;
+      ctx.fillText(`極速狂飆換算積分:    ${data.score.toLocaleString()} PTS`, sx, my + 172);
+      ctx.fillText(`通關關卡數量:        12 / 12 大師級關卡`, sx, my + 202);
+      ctx.fillText(`Playroom 排行榜成績: 已原生提交排行榜存檔`, sx, my + 232);
+
+      // 按鈕
+      const btnW = 180;
+      const btnH = 42;
+      const btnY = my + mh - 60;
+
+      // Menu
+      const rX = mx + 60;
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(rX, btnY, btnW, btnH);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.strokeRect(rX, btnY, btnW, btnH);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 15px monospace';
+      ctx.fillText('MENU / 主選單', rX + btnW / 2, btnY + 26);
+
+      // Play Again
+      const nX = mx + mw - 60 - btnW;
+      ctx.fillStyle = '#ffaa00';
+      ctx.fillRect(nX, btnY, btnW, btnH);
+      ctx.fillStyle = '#080c14';
+      ctx.fillText('AGAIN / 再狂飆一次', nX + btnW / 2, btnY + 26);
+    } else {
+      ctx.fillStyle = '#00ff88';
+      ctx.font = 'bold 28px monospace';
+      ctx.fillText('MISSION COMPLETE!', this.width / 2, my + 45);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '14px monospace';
+      ctx.fillText('時空數據核心成功回收 // EXTRACTION SUCCESS', this.width / 2, my + 72);
+
+      // 星級
+      ctx.font = 'bold 36px monospace';
+      ctx.fillStyle = '#ffe600';
+      ctx.fillText('★'.repeat(data.stars) + '☆'.repeat(3 - data.stars), this.width / 2, my + 120);
+
+      // 得分細項
+      ctx.textAlign = 'left';
+      ctx.font = '14px monospace';
+      ctx.fillStyle = '#94a3b8';
+      const sx = mx + 60;
+      ctx.fillText(`基礎過關獎勵:       +10,000`, sx, my + 160);
+      ctx.fillText(`剩餘時間加成:       +${data.timeBonus}`, sx, my + 185);
+      ctx.fillText(`殘影節約加成:       +${data.loopBonus}`, sx, my + 210);
+      if (data.penalty > 0) {
+        ctx.fillStyle = '#ff3366';
+        ctx.fillText(`時空悖論懲罰:       -${data.penalty}`, sx, my + 235);
+      }
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText(`總分: ${data.score.toLocaleString()} PTS`, sx, my + 270);
+
+      // 按鈕：下一關 / 重試
+      const btnW = 160;
+      const btnH = 42;
+      const btnY = my + mh - 55;
+
+      // Retry
+      const rX = mx + 50;
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(rX, btnY, btnW, btnH);
+      ctx.strokeStyle = '#94a3b8';
+      ctx.strokeRect(rX, btnY, btnW, btnH);
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 15px monospace';
+      ctx.fillText('RETRY / 重試', rX + btnW / 2, btnY + 26);
+
+      // Next
+      const nX = mx + mw - 50 - btnW;
+      ctx.fillStyle = '#00ff88';
+      ctx.fillRect(nX, btnY, btnW, btnH);
+      ctx.fillStyle = '#080c14';
+      ctx.fillText(currentLevelId >= LEVELS.length ? 'FINISH / 完成' : 'NEXT / 下一關', nX + btnW / 2, btnY + 26);
     }
-
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 20px monospace';
-    ctx.fillText(`總分: ${data.score.toLocaleString()} PTS`, sx, my + 270);
-
-    // 按鈕：下一關 / 重試
-    const btnW = 160;
-    const btnH = 42;
-    const btnY = my + mh - 55;
-
-    // Retry
-    const rX = mx + 50;
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(rX, btnY, btnW, btnH);
-    ctx.strokeStyle = '#94a3b8';
-    ctx.strokeRect(rX, btnY, btnW, btnH);
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 15px monospace';
-    ctx.fillText('RETRY / 重試', rX + btnW / 2, btnY + 26);
-
-    // Next
-    const nX = mx + mw - 50 - btnW;
-    ctx.fillStyle = '#00ff88';
-    ctx.fillRect(nX, btnY, btnW, btnH);
-    ctx.fillStyle = '#080c14';
-    ctx.fillText(currentLevelId >= LEVELS.length ? 'FINISH / 完成' : 'NEXT / 下一關', nX + btnW / 2, btnY + 26);
 
     ctx.restore();
   }
+
 
   // --- 失敗面板 ---
   private renderGameOverModal(ctx: CanvasRenderingContext2D, reason: string): void {

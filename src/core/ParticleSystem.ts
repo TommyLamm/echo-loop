@@ -216,6 +216,68 @@ export class ParticleSystem {
     }
   }
 
+  // 殘影移動時伴隨飄散的量子星塵微粒 (Quantum Stardust)
+  public emitQuantumStardust(x: number, y: number, color: string): void {
+    const angle = Math.random() * Math.PI * 2;
+    const dist = Math.random() * 14;
+    const speed = Math.random() * 25 + 5;
+    this.particles.push({
+      x: x + Math.cos(angle) * dist,
+      y: y + Math.sin(angle) * dist,
+      vx: (Math.random() - 0.5) * speed,
+      vy: -Math.random() * speed * 0.7 - 8,
+      life: Math.random() * 0.45 + 0.25,
+      maxLife: 0.7,
+      size: Math.random() * 2.2 + 1.0,
+      color,
+      shape: Math.random() < 0.3 ? 'square' : 'circle',
+      alpha: 0.9,
+    });
+  }
+
+  // 重力反轉力場衝擊波
+  public emitGravityPulse(x: number, y: number): void {
+    this.emitRipple(x, y, '#c040ff', 70);
+    this.emitRipple(x, y, '#00f0ff', 40);
+    for (let i = 0; i < 16; i++) {
+      const angle = (i / 16) * Math.PI * 2;
+      const speed = Math.random() * 80 + 50;
+      this.particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0.4,
+        maxLife: 0.4,
+        size: Math.random() * 3 + 2,
+        color: '#c040ff',
+        shape: 'circle',
+        alpha: 0.9,
+      });
+    }
+  }
+
+  // 稜鏡偏折聚焦火花 (Prism Sparks)
+  public emitPrismSparks(x: number, y: number, color: string = '#00f0ff'): void {
+    if (Math.random() < 0.5) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = Math.random() * 100 + 40;
+      this.particles.push({
+        x: x + (Math.random() - 0.5) * 6,
+        y: y + (Math.random() - 0.5) * 6,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 0.25,
+        maxLife: 0.25,
+        size: Math.random() * 2.5 + 1,
+        color,
+        shape: 'square',
+        alpha: 1.0,
+      });
+    }
+  }
+
+
   public render(ctx: CanvasRenderingContext2D): void {
     ctx.save();
     // 渲染波紋

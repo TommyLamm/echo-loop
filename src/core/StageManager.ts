@@ -1,4 +1,4 @@
-import { LevelConfig, PressurePad, SecurityDoor, LaserHazard, Wall, Teleporter, EmpTerminal } from '../types';
+import { LevelConfig, PressurePad, SecurityDoor, LaserHazard, Wall, Teleporter, EmpTerminal, LaserPrism } from '../types';
 import { GAME_CONFIG } from '../config/constants';
 import { SoundEngine } from '../audio/SoundEngine';
 import { ParticleSystem } from './ParticleSystem';
@@ -11,9 +11,11 @@ export class StageManager {
   public lasers: LaserHazard[] = [];
   public teleporters: Teleporter[] = [];
   public empTerminals: EmpTerminal[] = [];
+  public prisms: LaserPrism[] = [];
 
   public isEmpActive: boolean = false;
   public empRemainingTimer: number = 0;
+  public isGravityInverted: boolean = false;
 
   public corePosition: { x: number; y: number } = { x: 0, y: 0 };
   public exitPosition: { x: number; y: number } = { x: 0, y: 0 };
@@ -30,8 +32,10 @@ export class StageManager {
     this.lasers = JSON.parse(JSON.stringify(level.lasers));
     this.teleporters = level.teleporters ? JSON.parse(JSON.stringify(level.teleporters)) : [];
     this.empTerminals = level.empTerminals ? JSON.parse(JSON.stringify(level.empTerminals)) : [];
+    this.prisms = level.prisms ? JSON.parse(JSON.stringify(level.prisms)) : [];
     this.isEmpActive = false;
     this.empRemainingTimer = 0;
+    this.isGravityInverted = false;
 
     // 記錄雷射巡邏基點
     for (const l of this.lasers) {
@@ -55,8 +59,11 @@ export class StageManager {
     this.lasers = JSON.parse(JSON.stringify(this.currentLevel.lasers));
     this.teleporters = this.currentLevel.teleporters ? JSON.parse(JSON.stringify(this.currentLevel.teleporters)) : [];
     this.empTerminals = this.currentLevel.empTerminals ? JSON.parse(JSON.stringify(this.currentLevel.empTerminals)) : [];
+    this.prisms = this.currentLevel.prisms ? JSON.parse(JSON.stringify(this.currentLevel.prisms)) : [];
     this.isEmpActive = false;
     this.empRemainingTimer = 0;
+    this.isGravityInverted = false;
+
 
     for (const l of this.lasers) {
       if (l.patrol) {
@@ -212,10 +219,37 @@ export class StageManager {
       }
     }
 
-    // 3. 結算閘門狀態
+    // 5. 重力反轉矩陣 (Gravity Inversion) 狀態檢測
+    const inverterPad = this.pads.find((p) => p.isGravityInverter);
+    const shouldInvert = inverterPad ? inverterPad.isPressed : false;
+    if (shouldInvert !== this.isGravityInverted) {
+      this.isGravityInverted = shouldInvert;
+      this.sound.playGravityInvert(this.isGravityInverted);
+      if (inverterPad) {
+        particles.emitGravityPulse(inverterPad.x, inverterPad.y);
+      }
+    }
+
+    // 當重力反轉時，極性雷射休眠
+    if (this.isGravityInverted) {
+      for (const l of this.lasers) {
+        if (l.inverted) {
+          l.isActive = false;
+        }
+      }
+    }
+
+    // 6. 結算閘門狀態 (支援常規踏板與反極性門扉)
     for (const door of this.doors) {
       const controllingPads = this.pads.filter((p) => p.targets.includes(door.id));
-      const shouldOpen = controllingPads.length > 0 && controllingPads.some((p) => p.isPressed);
+      let shouldOpen = false;
+
+      if (door.inverted) {
+        // 反極性門：重力反轉矩陣激活時開啟
+        shouldOpen = this.isGravityInverted || (controllingPads.length > 0 && controllingPads.some((p) => p.isPressed));
+      } else {
+        shouldOpen = controllingPads.length > 0 && controllingPads.some((p) => p.isPressed);
+      }
 
       if (shouldOpen) {
         door.openProgress = Math.min(1.0, door.openProgress + dt * GAME_CONFIG.DOOR_SPEED);
@@ -225,13 +259,62 @@ export class StageManager {
       door.isOpen = door.openProgress >= 0.85;
     }
 
-    // 4. 核心粒子
+    // 7. 光學稜鏡 (Laser Prisms) 偏折與熔斷大門
+    for (const prism of this.prisms) {
+      let isAligned = false;
+      if (prism.requiresPadId) {
+        const pad = this.pads.find((p) => p.id === prism.requiresPadId);
+        isAligned = pad ? pad.isPressed : false;
+      } else {
+        const isAgentNear = Math.hypot(agentPos.x - prism.x, agentPos.y - prism.y) <= prism.radius + 18;
+        let isGhostNear = false;
+        for (const g of ghostPositions) {
+          if (Math.hypot(g.x - prism.x, g.y - prism.y) <= prism.radius + 18) {
+            isGhostNear = true;
+            break;
+          }
+        }
+        isAligned = isAgentNear || isGhostNear;
+      }
+
+      const wasAligned = prism.isAligned;
+      prism.isAligned = isAligned;
+      if (!wasAligned && prism.isAligned) {
+        this.sound.playPrismRefract();
+      }
+
+      // 檢查來源雷射
+      const sourceLaser = prism.sourceLaserId ? this.lasers.find((l) => l.id === prism.sourceLaserId) : this.lasers[0];
+      const isSourceFiring = sourceLaser ? sourceLaser.isActive : true;
+
+      if (prism.isAligned && isSourceFiring) {
+        const targetDoor = this.doors.find((d) => d.id === prism.targetDoorId);
+        if (targetDoor) {
+          prism.beamEndpoint = { x: targetDoor.x + targetDoor.w / 2, y: targetDoor.y + targetDoor.h / 2 };
+          const wasOpen = targetDoor.isOpen;
+          targetDoor.openProgress = Math.min(1.0, targetDoor.openProgress + dt * 2.8);
+          targetDoor.isOpen = targetDoor.openProgress >= 0.85;
+          prism.meltProgress = targetDoor.openProgress;
+
+          particles.emitPrismSparks(prism.beamEndpoint.x, prism.beamEndpoint.y, prism.color || '#00f0ff');
+          if (!wasOpen && targetDoor.isOpen) {
+            this.sound.playBlastDoorMelt();
+            particles.emitRipple(targetDoor.x + targetDoor.w / 2, targetDoor.y + targetDoor.h / 2, '#00ff88', 50);
+          }
+        }
+      } else {
+        prism.beamEndpoint = undefined;
+      }
+    }
+
+    // 8. 核心粒子
     if (!this.isCoreExtracted) {
       particles.emitCoreSparkles(this.corePosition.x, this.corePosition.y);
     }
-    // 5. 撤離點漩渦粒子
+    // 9. 撤離點漩渦粒子
     particles.emitVortexParticle(this.exitPosition.x, this.exitPosition.y);
   }
+
 
   // 特工與牆體/關閉閘門的圓形-AABB 碰撞滑動修正
   public resolveWallCollisions(pos: { x: number; y: number }, radius: number): void {
@@ -294,8 +377,17 @@ export class StageManager {
         return true;
       }
     }
+    // 稜鏡偏折聚焦高能雷射檢測
+    for (const p of this.prisms) {
+      if (p.isAligned && p.beamEndpoint) {
+        if (this.distToSegment(px, py, p.x, p.y, p.beamEndpoint.x, p.beamEndpoint.y) <= radius) {
+          return true;
+        }
+      }
+    }
     return false;
   }
+
 
   private distToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
     const l2 = (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
