@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "echo-loop",
+  "name": "殘影特工：時間迴圈",
+  "version": "1.0.0",
+  "description": "12 秒極限時間迴圈潛入！操控特工並精確錄製軌跡，與上一輪半透明的自己跨時空協同開門、避開雷射、奪取量子核心！",
+  "author": "TommyLam",
+  "entry": "index.html",
+  "cover": "cover.png",
+  "tags": ["動作", "益智", "賽博龐克", "時間迴圈", "殘影協同"],
+  "instructions": "WASD 或方向鍵移動特工，空白鍵或衝刺鍵瞬移，R 鍵或按鈕提早重置迴圈。在 12 秒內錄製動作，與上一輪殘影協同踩壓踏板、開啟閘門、避開致命雷射，取得量子核心並抵達撤離點！",
+  "devices": ["desktop", "mobile"],
+  "leaderboard": {
+    "id": "high-score",
+    "order": "desc",
+    "unit": "分",
+    "minScore": 0,
+    "maxScore": 9007199254740991
+  }
+}
